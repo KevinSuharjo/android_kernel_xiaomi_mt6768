@@ -3,19 +3,13 @@
 export KBUILD_BUILD_USER="kepin"  
 export KBUILD_BUILD_HOST="lol"	
 
-# setup clang & gcc-arm path
-export PATH=$PWD/clang/bin:$PWD/gcc-arm/bin:$PATH
+# setup clang path
+export PATH=$PWD/clang/bin:$PATH
 
-# Buat folder out
-mkdir -p out
+ARCH=arm64 scripts/kconfig/merge_config.sh -O "out" arch/arm64/configs/vendor/mt6768_defconfig arch/arm64/configs/vendor/merlin.config
 
-# Generate config merlin_defconfig
-make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out merlin_defconfig
-
-# Proses kompilasi kernel dengan tambahan AS=llvm-as agar tidak lari ke /usr/bin/as
-make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out LLVM=1 LLVM_IAS=1 \
+make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out LLVM=1 LLVM_IAS=1 
 	CC="clang" \
-	AS="llvm-as" \
 	AR="llvm-ar" \
 	NM="llvm-nm" \
 	LD="ld.lld -S" \
@@ -24,6 +18,6 @@ make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out LLVM=1 LLVM_IAS=1 \
 	STRIP="llvm-strip" \
 	CLANG_TRIPLE="aarch64-linux-gnu-" \
 	CROSS_COMPILE="aarch64-linux-gnu-" \
-	CROSS_COMPILE_ARM32="arm-linux-androideabi-" \
-	CROSS_COMPILE_COMPAT="arm-linux-androideabi-" \
+	CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
+	CROSS_COMPILE_COMPAT="arm-linux-gnueabi-" \
 	CONFIG_DEBUG_SECTION_MISMATCH=y
