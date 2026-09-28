@@ -9,8 +9,8 @@ export PATH=$PWD/clang/bin:$PATH
 # Buat folder out
 mkdir -p out
 
-# Langsung panggil defconfig vendor mt6768 (karena biasanya merlin.config udah di-include di dalamnya)
-make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out mt6768_defconfig
+# Panggil defconfig dengan path lengkap ke folder vendor/
+make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out vendor/mt6768_defconfig
 
 # Proses kompilasi kernel
 make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out LLVM=1 LLVM_IAS=1 \
