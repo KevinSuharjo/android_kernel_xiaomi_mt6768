@@ -9,8 +9,13 @@ export PATH=$PWD/clang/bin:$PATH
 # Buat folder out
 mkdir -p out
 
-# Panggil defconfig dengan path lengkap ke folder vendor/
-make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out vendor/mt6768_defconfig
+# Debugging: Cek isi folder configs untuk memastikan nama file yang valid
+echo "=== ISI FOLDER CONFIGS ==="
+ls -la arch/arm64/configs/
+ls -la arch/arm64/configs/vendor/ || true
+
+# Gunakan merlin_defconfig secara langsung
+make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out merlin_defconfig
 
 # Proses kompilasi kernel
 make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out LLVM=1 LLVM_IAS=1 \
