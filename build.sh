@@ -6,12 +6,13 @@ export KBUILD_BUILD_HOST="lol"
 # setup clang path
 export PATH=$PWD/clang/bin:$PATH
 
-# Wajib buat folder out dulu biar gak error "directory does not exist"
+# Buat folder out
 mkdir -p out
 
-# Jalankan merge_config dengan path file yang sesuai (masuk ke folder vendor/)
+# Merge config yang bener sesuai path folder vendor/
 ARCH=arm64 scripts/kconfig/merge_config.sh -O "out" arch/arm64/configs/vendor/mt6768_defconfig arch/arm64/configs/vendor/merlin.config
 
+# Proses kompilasi kernel
 make -j$(nproc --all) ARCH=arm64 SUBARCH=arm64 O=out LLVM=1 LLVM_IAS=1 \
 	CC="clang" \
 	AR="llvm-ar" \
