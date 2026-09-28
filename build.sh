@@ -1,32 +1,78 @@
-#!/bin/bash
-set -e
+# Taruh di: .github/workflows/build-kernel.yml di repo kernel_action_merlin
+# Repo ini cuma berisi build.sh + workflow; source kernel di-checkout terpisah ke ./kernel
+name: Build kernel merlin
 
-export KBUILD_BUILD_USER="kepin"
-export KBUILD_BUILD_HOST="lol"
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: "Repo source kernel"
+        default: "mt6768-dev/android_kernel_xiaomi_mt6768"
+      kernel_ref:
+        description: "Branch / tag / commit"
+        default: "lineage-20"
+      ksu:
+        description: "Integrasi KernelSU (butuh manual hook sudah ter-patch di source!)"
+        type: boolean
+        default: false
 
-# setup clang path (clang di-clone ke folder ./clang)
-export PATH="$PWD/clang/bin:$PATH"
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout scripts (build.sh)
+        uses: actions/checkout@v4
 
-# mt6768-dev/android_kernel_xiaomi_mt6768 (lineage-20): defconfig-nya merlin_defconfig
-DEFCONFIG="arch/arm64/configs/merlin_defconfig"
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.kernel_repo }}
+          ref: ${{ inputs.kernel_ref }}
+          path: kernel
+          fetch-depth: 1
 
-# optional: fragment tambahan (mis. ksu.config) lewat env EXTRA_CFG
-EXTRA_CFG="${EXTRA_CFG:-}"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev libelf-dev cpio lz4 zstd zip \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-mkdir -p out
-ARCH=arm64 scripts/kconfig/merge_config.sh -O out "$DEFCONFIG" $EXTRA_CFG
+      - name: Get AOSP clang r416183b
+        working-directory: kernel
+        run: |
+          git clone --depth=1 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b.git clang
+          clang/bin/clang --version
 
-# PENTING: setiap baris di bawah harus diakhiri "\" kecuali baris terakhir
-make -j"$(nproc --all)" ARCH=arm64 SUBARCH=arm64 O=out \
-	LLVM=1 LLVM_IAS=1 \
-	CC="clang" \
-	AR="llvm-ar" \
-	NM="llvm-nm" \
-	LD="ld.lld -S" \
-	OBJCOPY="llvm-objcopy" \
-	OBJDUMP="llvm-objdump" \
-	STRIP="llvm-strip" \
-	CLANG_TRIPLE="aarch64-linux-gnu-" \
-	CROSS_COMPILE="aarch64-linux-gnu-" \
-	CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
-	CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+      - name: Integrate KernelSU (optional)
+        if: ${{ inputs.ksu }}
+        working-directory: kernel
+        run: |
+          # sebaiknya pin ke tag/commit, bukan master
+          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s master
+          printf 'CONFIG_KSU=y\nCONFIG_KSU_HACK_ARM64_BRANCH_LINK=y\n' > ksu.config
+
+      - name: Build
+        working-directory: kernel
+        run: |
+          if [ -f ksu.config ]; then export EXTRA_CFG=ksu.config; fi
+          bash ../build.sh 2>&1 | tee ../build.log
+          test "${PIPESTATUS[0]}" -eq 0
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-merlin
+          if-no-files-found: error
+          path: |
+            kernel/out/arch/arm64/boot/Image*
+            kernel/out/arch/arm64/boot/dts/mediatek/*.dtb
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          if-no-files-found: ignore
+          path: build.log
