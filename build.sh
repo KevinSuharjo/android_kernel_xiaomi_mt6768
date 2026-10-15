@@ -1,6 +1,7 @@
-mkdir -p out
 #!/bin/bash
 set -e
+
+mkdir -p out
 
 export KBUILD_BUILD_USER="kepin"
 export KBUILD_BUILD_HOST="lol"
