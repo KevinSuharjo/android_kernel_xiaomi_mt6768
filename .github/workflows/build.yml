@@ -1,7 +1,3 @@
-# Simpan sebagai: .github/workflows/build.yml di repo
-#   KevinSuharjo/android_kernel_xiaomi_mt6768  (branch lineage-23.2, itu default branch-nya)
-# BELUM DIJALANKAN/DITES oleh Claude. Kalau ada step merah, kirim lognya.
-
 name: Build merlin kernel
 
 on:
@@ -46,8 +42,6 @@ jobs:
             device-tree-compiler python3 \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
-      # build.sh memakai $PWD/clang/bin, jadi clang harus ada di folder "clang" di root source.
-      # Log kernel lamamu: clang 12.0.5 (r416183b). Cek baris "clang version" di step berikutnya.
       - name: Ambil clang r416183b
         run: |
           git clone --depth=1 -b lineage-20.0 \
@@ -66,12 +60,9 @@ jobs:
             echo "enable_ksu aktif tapi ksu_setup_url kosong. Isi dengan setup.sh varian KSU yang kamu pakai."
             exit 1
           fi
-          # Pola umum setup.sh KSU: clone ke ./KernelSU, symlink drivers/kernelsu, edit Makefile/Kconfig
           curl -LSs "${{ inputs.ksu_setup_url }}" | bash -s -- ${{ inputs.ksu_ref }}
           echo "${{ inputs.ksu_configs }}" | tr ',' '\n' > arch/arm64/configs/vendor/ksu.config
           cat arch/arm64/configs/vendor/ksu.config
-          # CATATAN: di kernel 4.19 non-GKI, banyak varian KSU butuh hook tambahan di source kernel
-          # (manual hook / kprobe, tergantung varian). Itu tidak otomatis di sini.
 
       - name: Build pakai build.sh
         run: |
@@ -100,10 +91,3 @@ jobs:
         with:
           name: merlin-kernel
           path: result/
-
-# Habis build: unduh artifact "merlin-kernel", ganti kernel di boot.img-mu, mis. pakai magiskboot:
-#   magiskboot unpack boot.img
-#   (ganti "kernel" dengan Image atau Image.gz sesuai format di boot.img lama; kalau header v2
-#    dengan dtb terpisah, ganti juga "dtb")
-#   magiskboot repack boot.img new-boot.img
-#   fastboot flash boot new-boot.img
