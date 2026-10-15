@@ -1,3 +1,4 @@
+mkdir -p out
 #!/bin/bash
 set -e
 
