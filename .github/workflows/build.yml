@@ -1,0 +1,109 @@
+# Simpan sebagai: .github/workflows/build.yml di repo
+#   KevinSuharjo/android_kernel_xiaomi_mt6768  (branch lineage-23.2, itu default branch-nya)
+# BELUM DIJALANKAN/DITES oleh Claude. Kalau ada step merah, kirim lognya.
+
+name: Build merlin kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      enable_ksu:
+        description: "Tambahkan KernelSU? (build pertama sebaiknya false, tes EROFS dulu)"
+        type: boolean
+        default: false
+      ksu_setup_url:
+        description: "URL kernel/setup.sh milik varian KSU yang kamu pakai (WAJIB diisi kalau enable_ksu)"
+        type: string
+        default: ""
+      ksu_ref:
+        description: "Branch/tag/commit KSU (kosong = default setup.sh)"
+        type: string
+        default: ""
+      ksu_configs:
+        description: "Opsi config KSU, pisah koma"
+        type: string
+        default: "CONFIG_KSU=y"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Kosongkan disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Install dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex libssl-dev libelf-dev cpio lz4 zstd xz-utils curl \
+            device-tree-compiler python3 \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+      # build.sh memakai $PWD/clang/bin, jadi clang harus ada di folder "clang" di root source.
+      # Log kernel lamamu: clang 12.0.5 (r416183b). Cek baris "clang version" di step berikutnya.
+      - name: Ambil clang r416183b
+        run: |
+          git clone --depth=1 -b lineage-20.0 \
+            https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b clang
+          export LD_LIBRARY_PATH="$PWD/clang/lib64:$LD_LIBRARY_PATH"
+          clang/bin/clang --version | head -1
+
+      - name: Fragment EROFS
+        run: |
+          printf 'CONFIG_EROFS_FS=y\n' > arch/arm64/configs/vendor/erofs.config
+
+      - name: Tambah KernelSU (opsional)
+        if: ${{ inputs.enable_ksu }}
+        run: |
+          if [ -z "${{ inputs.ksu_setup_url }}" ]; then
+            echo "enable_ksu aktif tapi ksu_setup_url kosong. Isi dengan setup.sh varian KSU yang kamu pakai."
+            exit 1
+          fi
+          # Pola umum setup.sh KSU: clone ke ./KernelSU, symlink drivers/kernelsu, edit Makefile/Kconfig
+          curl -LSs "${{ inputs.ksu_setup_url }}" | bash -s -- ${{ inputs.ksu_ref }}
+          echo "${{ inputs.ksu_configs }}" | tr ',' '\n' > arch/arm64/configs/vendor/ksu.config
+          cat arch/arm64/configs/vendor/ksu.config
+          # CATATAN: di kernel 4.19 non-GKI, banyak varian KSU butuh hook tambahan di source kernel
+          # (manual hook / kprobe, tergantung varian). Itu tidak otomatis di sini.
+
+      - name: Build pakai build.sh
+        run: |
+          chmod +x build.sh
+          ./build.sh 2>&1 | tee build.log | tail -n 150
+
+      - name: Cek hasil .config
+        run: |
+          grep -E "^CONFIG_EROFS" out/.config
+          grep -q "^CONFIG_EROFS_FS=y" out/.config || { echo "EROFS TIDAK aktif"; exit 1; }
+          if [ "${{ inputs.enable_ksu }}" = "true" ]; then grep -E "^CONFIG_KSU" out/.config || true; fi
+          ls -lh out/arch/arm64/boot/
+          zcat out/arch/arm64/boot/Image.gz | grep -a -c erofs || true
+
+      - name: Kumpulkan hasil
+        run: |
+          mkdir -p result
+          cp out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz result/ 2>/dev/null || true
+          cp out/arch/arm64/boot/Image.gz-dtb result/ 2>/dev/null || true
+          cp out/.config result/config
+          cp build.log result/
+          find out/arch/arm64/boot/dts -name '*.dtb' -o -name '*.dtbo' | xargs -I{} cp {} result/ 2>/dev/null || true
+          ls -lh result
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: merlin-kernel
+          path: result/
+
+# Habis build: unduh artifact "merlin-kernel", ganti kernel di boot.img-mu, mis. pakai magiskboot:
+#   magiskboot unpack boot.img
+#   (ganti "kernel" dengan Image atau Image.gz sesuai format di boot.img lama; kalau header v2
+#    dengan dtb terpisah, ganti juga "dtb")
+#   magiskboot repack boot.img new-boot.img
+#   fastboot flash boot new-boot.img
