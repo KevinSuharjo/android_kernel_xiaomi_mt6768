@@ -50,15 +50,22 @@ jobs:
           CONFIG_EROFS_FS_CLUSTER_PAGE_LIMIT=1
           EOF
 
-      - name: Inject Tweaks, Droidspaces, MGLRU & Custom Name ke merlin.config
+      - name: Inject Tweaks, Droidspaces, SELinux Permissive & Custom Name
         run: |
           mkdir -p arch/arm64/configs/vendor
           touch arch/arm64/configs/vendor/merlin.config
           cat << 'EOF' >> arch/arm64/configs/vendor/merlin.config
 
-          # Custom Kernel Name (< 64 chars limit with base kernel version)
+          # Custom Kernel Name (< 64 chars limit)
           # CONFIG_LOCALVERSION_AUTO is not set
           CONFIG_LOCALVERSION="-salsachan-creampie-hyperos"
+
+          # Force SELinux Permissive
+          CONFIG_SECURITY_SELINUX_BOOTPARAM=y
+          CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=0
+          CONFIG_SECURITY_SELINUX_DEVELOP=y
+          CONFIG_CMDLINE_EXTEND=y
+          CONFIG_CMDLINE="androidboot.selinux=permissive"
 
           # DroidSpaces Requirements
           CONFIG_NAMESPACES=y
@@ -133,7 +140,8 @@ jobs:
           grep -E "^CONFIG_EROFS" out/.config || true
           grep -E "^CONFIG_KSU" out/.config || true
           grep -E "^CONFIG_LOCALVERSION" out/.config || true
-          grep -E "^CONFIG_LRU_GEN" out/.config || true
+          grep -E "^CONFIG_SECURITY_SELINUX" out/.config || true
+          grep -E "^CONFIG_CMDLINE" out/.config || true
           ls -lh out/arch/arm64/boot/
           zcat out/arch/arm64/boot/Image.gz | grep -a -c erofs || true
 
