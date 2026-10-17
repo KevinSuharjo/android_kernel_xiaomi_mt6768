@@ -56,8 +56,9 @@ jobs:
           touch arch/arm64/configs/vendor/merlin.config
           cat << 'EOF' >> arch/arm64/configs/vendor/merlin.config
 
-          # Custom Kernel Name
-          CONFIG_LOCALVERSION="-nekonyaw-salsachan-creampie!-hyperos"
+          # Custom Kernel Name (< 64 chars limit with base kernel version)
+          # CONFIG_LOCALVERSION_AUTO is not set
+          CONFIG_LOCALVERSION="-salsachan-creampie-hyperos"
 
           # DroidSpaces Requirements
           CONFIG_NAMESPACES=y
@@ -85,9 +86,6 @@ jobs:
           CONFIG_LRU_GEN_ENABLED=y
 
           # Battery & Deep Sleep Tweaks
-          # CONFIG_SCHED_DEBUG is not set
-          # CONFIG_DEBUG_KMEMLEAK is not set
-          # CONFIG_SLUB_DEBUG is not set
           CONFIG_PM_AUTOSLEEP=y
           CONFIG_PM_WAKELOCKS=y
           CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
@@ -97,8 +95,6 @@ jobs:
       - name: Patch eBPF / uname spoofing di kernel/sys.c
         run: |
           python3 - << 'PYEOF'
-          import sys
-
           with open("kernel/sys.c", "r") as f:
               code = f.read()
 
