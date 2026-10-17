@@ -224,7 +224,10 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
           cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
           CONFIG_KSU=y
-          CONFIG_KSU_MANUAL_HOOK=y
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KPROBE_EVENTS=y
+          # CONFIG_KSU_MANUAL_HOOK is not set
           EOF
 
       - name: Build Kernel dengan build.sh
