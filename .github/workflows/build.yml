@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       enable_ksu:
-        description: "Pasang KernelSU-Next (legacy)?"
+        description: "Pasang KernelSU (backslashxx)?"
         type: boolean
         default: true
       enable_mglru:
@@ -218,16 +218,14 @@ jobs:
           CONFIG_NETFILTER_XT_TARGET_NFLOG=y
           EOF
 
-      - name: Pasang KernelSU-Next
+      - name: Pasang KernelSU (backslashxx)
         if: ${{ inputs.enable_ksu }}
         run: |
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s master
           cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
+          # KernelSU
           CONFIG_KSU=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_KPROBE_EVENTS=y
-          # CONFIG_KSU_MANUAL_HOOK is not set
+          CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y
           EOF
 
       - name: Build Kernel dengan build.sh
