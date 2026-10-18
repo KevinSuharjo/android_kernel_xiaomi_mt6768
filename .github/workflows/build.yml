@@ -39,10 +39,15 @@ jobs:
 
       - name: Setup KernelSU Next
         run: |
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/legacy/kernel/setup.sh" | bash -s legacy
           mkdir -p arch/arm64/configs/vendor
           cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
           CONFIG_KSU=y
+          CONFIG_KSU_SYSCALL_TABLE_HOOK=y
+          # CONFIG_KPROBES is not set
+          # CONFIG_CFI is not set
+          # CONFIG_CFI_CLANG is not set
+          # CONFIG_SHADOW_CALL_STACK is not set
           EOF
 
       - name: Fragment EROFS
@@ -128,6 +133,7 @@ jobs:
           grep -E "^CONFIG_EROFS" out/.config || true
           grep -E "^CONFIG_KSU" out/.config || true
           grep -E "^CONFIG_LOCALVERSION" out/.config || true
+          grep -E "CONFIG_KPROBES|CONFIG_CFI|CONFIG_SHADOW_CALL_STACK" out/.config || true
           ls -lh out/arch/arm64/boot/
           zcat out/arch/arm64/boot/Image.gz | grep -a -c erofs || true
 
