@@ -39,12 +39,13 @@ jobs:
 
       - name: Setup KernelSU Next
         run: |
+          rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/refs/heads/legacy/kernel/setup.sh" | bash -s legacy
           mkdir -p arch/arm64/configs/vendor
           cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
           CONFIG_KSU=y
-          CONFIG_KSU_SYSCALL_TABLE_HOOK=y
-          # CONFIG_KPROBES is not set
+          # CONFIG_KSU_MANUAL_HOOK is not set
+          CONFIG_KPROBES=y
           # CONFIG_CFI is not set
           # CONFIG_CFI_CLANG is not set
           # CONFIG_SHADOW_CALL_STACK is not set
