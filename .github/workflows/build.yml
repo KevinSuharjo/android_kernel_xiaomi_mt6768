@@ -8,11 +8,11 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 240
     steps:
-      - name: Checkout kernel source (lineage-23.2)
+      - name: Checkout kernel source (lineage-23.2-old)
         uses: actions/checkout@v4
         with:
           repository: KevinSuharjo/android_kernel_xiaomi_mt6768
-          ref: lineage-23.2
+          ref: lineage-23.2-old
           fetch-depth: 1
 
       - name: Kosongkan disk
