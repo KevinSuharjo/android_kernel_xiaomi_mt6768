@@ -50,30 +50,32 @@ jobs:
           rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Inject Custom Config (KSUN, Droidspaces, Custom Name, Disable Kprobes/CFI/SCS)
+      - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN
         run: |
-          # Matikan KPROBES, CFI, dan SHADOW_CALL_STACK dari basis defconfig
-          sed -i 's/CONFIG_KPROBES=y/# CONFIG_KPROBES is not set/' arch/arm64/configs/merlin_defconfig || true
-          sed -i 's/CONFIG_CFI=y/# CONFIG_CFI is not set/' arch/arm64/configs/merlin_defconfig || true
-          sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/' arch/arm64/configs/merlin_defconfig || true
-          sed -i 's/CONFIG_SHADOW_CALL_STACK=y/# CONFIG_SHADOW_CALL_STACK is not set/' arch/arm64/configs/merlin_defconfig || true
-          sed -i 's/CONFIG_ANDROID_PARANOID_NETWORK=y/# CONFIG_ANDROID_PARANOID_NETWORK is not set/' arch/arm64/configs/merlin_defconfig || true
+          # 1. Bikin direktori vendor yang dicari oleh build.sh
+          mkdir -p arch/arm64/configs/vendor
 
-          cat << 'EOF' >> arch/arm64/configs/merlin_defconfig
+          # 2. Salin merlin_defconfig sebagai basis mt6768_defconfig
+          cp arch/arm64/configs/merlin_defconfig arch/arm64/configs/vendor/mt6768_defconfig
+
+          # 3. Buat fragment merlin.config yang dipanggil build.sh
+          cat << 'EOF' > arch/arm64/configs/vendor/merlin.config
 
           # Custom Kernel Name
           # CONFIG_LOCALVERSION_AUTO is not set
           CONFIG_LOCALVERSION="-nekonyaw-salsachan-creampiee!!"
 
-          # KernelSU-Next Config
+          # KernelSU-Next Hook Mode
           CONFIG_KSU=y
           CONFIG_KSU_SYSCALL_TABLE_HOOK=y
 
-          # Disable KPROBES, CFI, and SHADOW_CALL_STACK
+          # DISABLE KPROBES TOTAL
           # CONFIG_KPROBES is not set
           # CONFIG_HAVE_KPROBES is not set
           # CONFIG_KRETPROBES is not set
           # CONFIG_KPROBE_EVENTS is not set
+
+          # DISABLE CFI & SHADOW CALL STACK
           # CONFIG_CFI is not set
           # CONFIG_CFI_CLANG is not set
           # CONFIG_SHADOW_CALL_STACK is not set
@@ -84,7 +86,7 @@ jobs:
           CONFIG_EROFS_FS_CLUSTER_PAGE_LIMIT=1
 
           # ========================================================
-          # DROIDSPACES KERNEL CONFIGURATIONS (Non-GKI 4.14)
+          # DROIDSPACES CONFIGURATIONS (Non-GKI 4.14)
           # ========================================================
 
           # IPC mechanisms
@@ -92,7 +94,7 @@ jobs:
           CONFIG_SYSVIPC=y
           CONFIG_POSIX_MQUEUE=y
 
-          # Core namespace support & user namespace (Docker fix)
+          # Core namespace support & user namespace
           CONFIG_NAMESPACES=y
           CONFIG_PID_NS=y
           CONFIG_UTS_NS=y
@@ -163,7 +165,7 @@ jobs:
           CONFIG_MACVLAN=y
           # CONFIG_ANDROID_PARANOID_NETWORK is not set
 
-          # UFW / Fail2ban Core & Extra Netfilter Matchers
+          # UFW / Fail2ban Core & Netfilter Matchers
           CONFIG_NETFILTER_XT_MATCH_COMMENT=y
           CONFIG_NETFILTER_XT_MATCH_STATE=y
           CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
