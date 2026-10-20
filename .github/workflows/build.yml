@@ -50,15 +50,42 @@ jobs:
           rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
+      - name: Inject Manual Hooks untuk KernelSU-Next (4.14 Non-Kprobes)
+        run: |
+          # 1. fs/exec.c (execve)
+          if ! grep -q "ksu_handle_execve" fs/exec.c; then
+            sed -i '/setup_new_exec(bprm);/i \
+            extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
+            ksu_handle_execveat((int *)AT_FDCWD, &bprm->filename, NULL, NULL, NULL);' fs/exec.c
+          fi
+
+          # 2. fs/open.c (faccessat)
+          if ! grep -q "ksu_handle_faccessat" fs/open.c; then
+            sed -i '/SYSCALL_DEFINE3(faccessat/i \
+            extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);' fs/open.c
+            sed -i '/if (mode & ~S_IRWXO)/i \
+            ksu_handle_faccessat(&dfd, &filename, &mode, NULL);' fs/open.c
+          fi
+
+          # 3. fs/stat.c (newfstatat)
+          if ! grep -q "ksu_handle_stat" fs/stat.c; then
+            sed -i '/SYSCALL_DEFINE4(newfstatat/i \
+            extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);' fs/stat.c
+            sed -i '/vfs_fstatat(dfd, filename, &stat, flag);/i \
+            ksu_handle_stat(&dfd, &filename, &flag);' fs/stat.c
+          fi
+
+          # 4. kernel/reboot.c (trigger deteksi manual hook di Kbuild KSUN)
+          if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
+            echo '/* ksu_handle_sys_reboot hook marker for KernelSU-Next */' >> kernel/reboot.c
+            echo 'extern void ksu_handle_sys_reboot(void); void __weak ksu_handle_sys_reboot(void) {}' >> kernel/reboot.c
+          fi
+
       - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN
         run: |
-          # 1. Bikin direktori vendor yang dicari oleh build.sh
           mkdir -p arch/arm64/configs/vendor
-
-          # 2. Salin merlin_defconfig sebagai basis mt6768_defconfig
           cp arch/arm64/configs/merlin_defconfig arch/arm64/configs/vendor/mt6768_defconfig
 
-          # 3. Buat fragment merlin.config yang dipanggil build.sh
           cat << 'EOF' > arch/arm64/configs/vendor/merlin.config
 
           # Custom Kernel Name
@@ -66,13 +93,10 @@ jobs:
           CONFIG_LOCALVERSION="-nekonyaw-salsachan-creampiee!!"
 
           # ========================================================
-          # KERNELSU-NEXT HOOK CONFIGURATION
+          # KERNELSU-NEXT MANUAL HOOK CONFIGURATION
           # ========================================================
           CONFIG_KSU=y
-          CONFIG_KSU_HOOK_MODE=1
-          CONFIG_KSU_HOOK_MANUAL=y
-          CONFIG_KSU_SYSCALL_TABLE_HOOK=y
-          CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y
+          CONFIG_KSU_MANUAL_HOOK=y
 
           # DISABLE KPROBES TOTAL
           # CONFIG_KPROBES is not set
