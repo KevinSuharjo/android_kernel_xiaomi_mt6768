@@ -65,9 +65,14 @@ jobs:
           # CONFIG_LOCALVERSION_AUTO is not set
           CONFIG_LOCALVERSION="-nekonyaw-salsachan-creampiee!!"
 
-          # KernelSU-Next Hook Mode
+          # ========================================================
+          # KERNELSU-NEXT HOOK CONFIGURATION
+          # ========================================================
           CONFIG_KSU=y
+          CONFIG_KSU_HOOK_MODE=1
+          CONFIG_KSU_HOOK_MANUAL=y
           CONFIG_KSU_SYSCALL_TABLE_HOOK=y
+          CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y
 
           # DISABLE KPROBES TOTAL
           # CONFIG_KPROBES is not set
