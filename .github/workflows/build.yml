@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             bc bison flex libssl-dev libelf-dev cpio lz4 zstd xz-utils curl \
-            device-tree-compiler python3 \
+            device-tree-compiler python3 zip unzip \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Ambil clang r416183b
@@ -42,20 +42,10 @@ jobs:
           rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/refs/heads/master/kernel/setup.sh" | bash -s master
 
-      - name: Fragment EROFS
+      - name: Fragment EROFS & Inject Custom Config (KernelSU, DroidSpaces, Custom Name)
         run: |
           mkdir -p arch/arm64/configs/vendor
-          cat << 'EOF' > arch/arm64/configs/vendor/erofs.config
-          CONFIG_EROFS_FS=y
-          CONFIG_EROFS_FS_ZIP=y
-          CONFIG_EROFS_FS_CLUSTER_PAGE_LIMIT=1
-          EOF
-
-      - name: Inject KernelSU, DroidSpaces & Custom Name ke merlin.config
-        run: |
-          mkdir -p arch/arm64/configs/vendor
-          touch arch/arm64/configs/vendor/merlin.config
-          cat << 'EOF' >> arch/arm64/configs/vendor/merlin.config
+          cat << 'EOF' >> arch/arm64/configs/merlin_defconfig
 
           # Custom Kernel Name
           # CONFIG_LOCALVERSION_AUTO is not set
@@ -65,7 +55,12 @@ jobs:
           CONFIG_KSU=y
           CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y
 
-          # DroidSpaces Requirements
+          # EROFS Support
+          CONFIG_EROFS_FS=y
+          CONFIG_EROFS_FS_ZIP=y
+          CONFIG_EROFS_FS_CLUSTER_PAGE_LIMIT=1
+
+          # DroidSpaces Requirements & Namespaces
           CONFIG_NAMESPACES=y
           CONFIG_UTS_NS=y
           CONFIG_IPC_NS=y
@@ -86,34 +81,6 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
           CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
           EOF
-          cat arch/arm64/configs/vendor/merlin.config
-
-      - name: Patch eBPF / uname spoofing di kernel/sys.c
-        run: |
-          python3 - << 'PYEOF'
-          with open("kernel/sys.c", "r") as f:
-              code = f.read()
-
-          spoof_code = """
-          \t/* eBPF / netd version spoofing */
-          \tif (strstr(current->comm, "bpfloader") ||
-          \t    strstr(current->comm, "netbpfload") ||
-          \t    strstr(current->comm, "netd") ||
-          \t    strstr(current->comm, "system_server")) {
-          \t\tstrscpy(tmp.release, "5.10.0-android12-9-g000000000000", sizeof(tmp.release));
-          \t}
-          """
-
-          target = "memcpy(&tmp, utsname(), sizeof(tmp));\n\tup_read(&uts_sem);"
-          if target in code and "bpfloader" not in code:
-              code = code.replace(target, target + spoof_code)
-              with open("kernel/sys.c", "w") as f:
-                  f.write(code)
-              print("sys.c successfully patched for eBPF spoofing!")
-          else:
-              print("sys.c already patched or target pattern not found.")
-          PYEOF
-          git diff kernel/sys.c || true
 
       - name: Build pakai build.sh
         run: |
@@ -124,25 +91,24 @@ jobs:
             exit 1
           }
 
-      - name: Cek hasil .config
+      - name: Packaging dengan AnyKernel3
         run: |
-          grep -E "^CONFIG_EROFS" out/.config || true
-          grep -E "^CONFIG_KSU" out/.config || true
-          grep -E "^CONFIG_LOCALVERSION" out/.config || true
-          ls -lh out/arch/arm64/boot/
-          zcat out/arch/arm64/boot/Image.gz | grep -a -c erofs || true
+          git clone https://github.com/osm0sis/AnyKernel3.git -b master package-kernel
+          cp out/arch/arm64/boot/Image.gz-dtb package-kernel/ || cp out/arch/arm64/boot/Image.gz package-kernel/
+          cd package-kernel
+          zip -r9 ../Custom_Kernel_Merlin_NekoChan.zip *
 
       - name: Kumpulkan hasil
         run: |
           mkdir -p result
+          cp Custom_Kernel_Merlin_NekoChan.zip result/
           cp out/arch/arm64/boot/Image out/arch/arm64/boot/Image.gz result/ 2>/dev/null || true
           cp out/arch/arm64/boot/Image.gz-dtb result/ 2>/dev/null || true
           cp out/.config result/config
           cp build.log result/
-          find out/arch/arm64/boot/dts -name '*.dtb' -o -name '*.dtbo' | xargs -I{} cp {} result/ 2>/dev/null || true
           ls -lh result
 
       - uses: actions/upload-artifact@v4
         with:
-          name: merlin-kernel
+          name: merlin-kernel-neko
           path: result/
