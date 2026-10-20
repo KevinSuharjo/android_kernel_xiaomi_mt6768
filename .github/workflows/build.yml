@@ -50,37 +50,6 @@ jobs:
           rm -rf drivers/kernelsu
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
-      - name: Inject Manual Hooks untuk KernelSU-Next (4.14 Non-Kprobes)
-        run: |
-          # 1. fs/exec.c (execve)
-          if ! grep -q "ksu_handle_execve" fs/exec.c; then
-            sed -i '/setup_new_exec(bprm);/i \
-            extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\
-            ksu_handle_execveat((int *)AT_FDCWD, &bprm->filename, NULL, NULL, NULL);' fs/exec.c
-          fi
-
-          # 2. fs/open.c (faccessat)
-          if ! grep -q "ksu_handle_faccessat" fs/open.c; then
-            sed -i '/SYSCALL_DEFINE3(faccessat/i \
-            extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);' fs/open.c
-            sed -i '/if (mode & ~S_IRWXO)/i \
-            ksu_handle_faccessat(&dfd, &filename, &mode, NULL);' fs/open.c
-          fi
-
-          # 3. fs/stat.c (newfstatat)
-          if ! grep -q "ksu_handle_stat" fs/stat.c; then
-            sed -i '/SYSCALL_DEFINE4(newfstatat/i \
-            extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);' fs/stat.c
-            sed -i '/vfs_fstatat(dfd, filename, &stat, flag);/i \
-            ksu_handle_stat(&dfd, &filename, &flag);' fs/stat.c
-          fi
-
-          # 4. kernel/reboot.c (trigger deteksi manual hook di Kbuild KSUN)
-          if ! grep -q "ksu_handle_sys_reboot" kernel/reboot.c; then
-            echo '/* ksu_handle_sys_reboot hook marker for KernelSU-Next */' >> kernel/reboot.c
-            echo 'extern void ksu_handle_sys_reboot(void); void __weak ksu_handle_sys_reboot(void) {}' >> kernel/reboot.c
-          fi
-
       - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN
         run: |
           mkdir -p arch/arm64/configs/vendor
@@ -93,16 +62,13 @@ jobs:
           CONFIG_LOCALVERSION="-nekonyaw-salsachan-creampiee!!"
 
           # ========================================================
-          # KERNELSU-NEXT MANUAL HOOK CONFIGURATION
+          # KERNELSU CONFIGURATION (Stable Kprobes Hook)
           # ========================================================
           CONFIG_KSU=y
-          CONFIG_KSU_MANUAL_HOOK=y
-
-          # DISABLE KPROBES TOTAL
-          # CONFIG_KPROBES is not set
-          # CONFIG_HAVE_KPROBES is not set
-          # CONFIG_KRETPROBES is not set
-          # CONFIG_KPROBE_EVENTS is not set
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_KRETPROBES=y
+          CONFIG_KPROBE_EVENTS=y
 
           # DISABLE CFI & SHADOW CALL STACK
           # CONFIG_CFI is not set
@@ -123,12 +89,12 @@ jobs:
           CONFIG_SYSVIPC=y
           CONFIG_POSIX_MQUEUE=y
 
-          # Core namespace support & user namespace
+          # Core namespace support (Aman untuk Android init)
           CONFIG_NAMESPACES=y
           CONFIG_PID_NS=y
           CONFIG_UTS_NS=y
           CONFIG_IPC_NS=y
-          CONFIG_USER_NS=y
+          CONFIG_NET_NS=y
 
           # Seccomp support
           CONFIG_SECCOMP=y
@@ -160,7 +126,6 @@ jobs:
           CONFIG_FW_LOADER_COMPRESS=y
 
           # Droidspaces Network Isolation Support (NAT/none/macvlan)
-          CONFIG_NET_NS=y
           CONFIG_VETH=y
           CONFIG_BRIDGE=y
           CONFIG_NETFILTER=y
