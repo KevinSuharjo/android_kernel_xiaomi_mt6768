@@ -6,17 +6,27 @@ mkdir -p out
 export KBUILD_BUILD_USER="kepin"
 export KBUILD_BUILD_HOST="lol"
 
-# setup clang path (clang/ ada di root source kernel)
-export PATH=$PWD/clang/bin:$PATH
-export LD_LIBRARY_PATH=$PWD/clang/lib64:$LD_LIBRARY_PATH
+# Setup Clang path (folder clang ada di root kernel source saat di runner)
+if [ -d "$PWD/clang" ]; then
+    export PATH=$PWD/clang/bin:$PATH
+    export LD_LIBRARY_PATH=$PWD/clang/lib64:$LD_LIBRARY_PATH
+fi
 
 CFG=arch/arm64/configs/vendor
 
 # Fragment config yang digabung, urutan penting (yang belakang menimpa yang depan)
-FRAGMENTS="$CFG/mt6768_defconfig $CFG/merlin.config"
-[ -f "$CFG/erofs.config" ] && FRAGMENTS="$FRAGMENTS $CFG/erofs.config"
-[ -f "$CFG/ksu.config" ]   && FRAGMENTS="$FRAGMENTS $CFG/ksu.config"
-echo "Fragment yang dipakai: $FRAGMENTS"
+FRAGMENTS=""
+[ -f "$CFG/mt6768_defconfig" ] && FRAGMENTS="$FRAGMENTS $CFG/mt6768_defconfig"
+[ -f "$CFG/merlin.config" ]     && FRAGMENTS="$FRAGMENTS $CFG/merlin.config"
+[ -f "$CFG/erofs.config" ]      && FRAGMENTS="$FRAGMENTS $CFG/erofs.config"
+[ -f "$CFG/ksu.config" ]        && FRAGMENTS="$FRAGMENTS $CFG/ksu.config"
+
+# Kalau vendor/mt6768_defconfig ga ada, fallback ke merlin_defconfig biasa
+if [ -z "$FRAGMENTS" ]; then
+    FRAGMENTS="arch/arm64/configs/merlin_defconfig"
+fi
+
+echo ">> Fragment config yang dipakai: $FRAGMENTS"
 
 ARCH=arm64 scripts/kconfig/merge_config.sh -O "out" $FRAGMENTS
 
