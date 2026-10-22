@@ -43,10 +43,52 @@ jobs:
           sed -i -E 's/^(EXTRAVERSION\s*=\s*).*/\1/' Makefile
           head -n 5 Makefile
 
-      - name: Setup KernelSU-Next (Legacy)
+      - name: Setup KernelSU-Next (Legacy) & Manual Hooks
         run: |
-          rm -rf drivers/kernelsu
+          rm -rf drivers/kernelsu KernelSU-Next
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+
+          # Inject manual hooks jika belum ada
+          # 1. fs/exec.c
+          if ! grep -q "ksu_handle_execveat" fs/exec.c; then
+            echo "Injecting KSU hook into fs/exec.c..."
+            sed -i '1i extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);' fs/exec.c
+            sed -i '/ret = do_execveat_common(fd, filename, argv, envp, flags);/i \
+            ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);' fs/exec.c
+          fi
+
+          # 2. fs/read_write.c
+          if ! grep -q "ksu_handle_vfs_read" fs/read_write.c; then
+            echo "Injecting KSU hook into fs/read_write.c..."
+            sed -i '1i extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);' fs/read_write.c
+            sed -i '/if (unlikely(!file->f_op->read_iter))/i \
+            ksu_handle_vfs_read(&file, &buf, &count, &pos);' fs/read_write.c || \
+            sed -i '/if (unlikely(!file->f_op->read_iter && !file->f_op->read))/i \
+            ksu_handle_vfs_read(&file, &buf, &count, &pos);' fs/read_write.c
+          fi
+
+          # 3. fs/stat.c
+          if ! grep -q "ksu_handle_stat" fs/stat.c; then
+            echo "Injecting KSU hook into fs/stat.c..."
+            sed -i '1i extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);' fs/stat.c
+            sed -i '/int error = -EINVAL;/a \
+            ksu_handle_stat(&dfd, &filename, &flags);' fs/stat.c || \
+            sed -i '/int error;/a \
+            ksu_handle_stat(&dfd, &filename, &flags);' fs/stat.c
+          fi
+
+          # 4. drivers/input/input.c
+          if ! grep -q "ksu_input_hook" drivers/input/input.c; then
+            echo "Injecting KSU hook into drivers/input/input.c..."
+            sed -i '1i extern bool ksu_input_hook __read_mostly;' drivers/input/input.c
+            sed -i '1i extern void ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);' drivers/input/input.c
+            sed -i '/input_pass_values(dev, vals, count);/i \
+            if (unlikely(ksu_input_hook)) { \
+                int i; \
+                for (i = 0; i < count; i++) \
+                    ksu_handle_input_handle_event(&vals[i].type, &vals[i].code, &vals[i].value); \
+            }' drivers/input/input.c
+          fi
 
       - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN
         run: |
@@ -59,7 +101,7 @@ jobs:
           # Custom Kernel Name
           CONFIG_LOCALVERSION="-salsachan-ksun-nekopoieee!!!"
 
-          # KERNELSU CONFIGURATION (LEGACY HOOK, NO KPROBES)
+          # KERNELSU CONFIGURATION (MANUAL HOOK, NO KPROBES)
           CONFIG_KSU=y
           CONFIG_KSU_DEBUG=n
           # CONFIG_KPROBES is not set
