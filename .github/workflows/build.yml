@@ -18,11 +18,6 @@ jobs:
           ref: lineage-24.0
           fetch-depth: 1
 
-      - name: Kosongkan disk runner
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /opt/hostedtoolcache/CodeQL
-          df -h /
-
       - name: Install dependency
         run: |
           sudo apt-get update
@@ -40,7 +35,7 @@ jobs:
 
       - name: Bersihkan EXTRAVERSION di Makefile (Hapus cip-cip)
         run: |
-          sed -i -E 's/^(EXTRAVERSION\s*=\s*).*/\1/' Makefile
+          sed -i 's/^EXTRAVERSION =.*/EXTRAVERSION =/' Makefile
           head -n 5 Makefile
 
       - name: Setup KernelSU-Next (Legacy) & Manual Hooks
@@ -98,12 +93,13 @@ jobs:
           fi
 
           cat << 'EOF' > arch/arm64/configs/vendor/merlin.config
-          # Custom Kernel Name
-          CONFIG_LOCALVERSION="-salsachan-hyperos-nekopoieee!!!"
+          # Custom Kernel Name (Max total UTS_RELEASE 64 chars)
+          CONFIG_LOCALVERSION="-salsachan"
 
           # KERNELSU CONFIGURATION (MANUAL HOOK, NO KPROBES)
           CONFIG_KSU=y
           CONFIG_KSU_DEBUG=n
+          CONFIG_KSU_MANUAL_HOOK=y
           # CONFIG_KPROBES is not set
           # CONFIG_HAVE_KPROBES is not set
           # CONFIG_KPROBE_EVENTS is not set
