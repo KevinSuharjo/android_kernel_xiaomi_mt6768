@@ -166,7 +166,7 @@ jobs:
           # build.sh otomatis merge vendor/ksu.config SETELAH merlin.config.
           cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
           # Custom Kernel Name (Max total UTS_RELEASE 64 chars)
-          CONFIG_LOCALVERSION="-salsachan"
+          CONFIG_LOCALVERSION="-salsachan-nekopiee-hyperos+"
 
           # KERNELSU CONFIGURATION (MANUAL HOOK, NO KPROBES)
           CONFIG_KSU=y
