@@ -85,6 +85,30 @@ jobs:
             }' drivers/input/input.c
           fi
 
+      - name: DEBUG - Cek hook & Kbuild KernelSU-Next
+        if: always()
+        run: |
+          echo "===== Kbuild baris 170-230 ====="
+          sed -n '170,230p' drivers/kernelsu/Kbuild || true
+
+          echo "===== Semua referensi hook di Kbuild ====="
+          grep -n "hook\|HOOK\|kprobe\|KPROBE" drivers/kernelsu/Kbuild || true
+
+          echo "===== Hasil injeksi hook di source kernel ====="
+          grep -n "ksu_handle\|ksu_input_hook" \
+            fs/exec.c fs/read_write.c fs/stat.c fs/open.c \
+            drivers/input/input.c kernel/sys.c || true
+
+          echo "===== Konteks pola yang di-sed ====="
+          grep -n "do_execveat_common" fs/exec.c || true
+          grep -n "ssize_t vfs_read\|f_op->read_iter" fs/read_write.c || true
+          grep -n "int error" fs/stat.c || true
+          grep -n "input_pass_values" drivers/input/input.c || true
+
+          echo "===== Diff yang berubah ====="
+          git status --short || true
+          git diff --stat || true
+
       - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN + EROFS
         run: |
           mkdir -p arch/arm64/configs/vendor
@@ -189,10 +213,34 @@ jobs:
           # CONFIG_ANDROID_PARANOID_NETWORK is not set
           EOF
 
+      - name: DEBUG - Isi fragment & build.sh
+        if: always()
+        run: |
+          echo "===== build.sh ====="
+          cat build.sh || true
+          echo "===== Fragment KSU ====="
+          grep -n "KSU\|KPROBES" arch/arm64/configs/vendor/merlin.config || true
+
       - name: Eksekusi Kompilasi Kernel
         run: |
           chmod +x build.sh
-          ./build.sh
+          set -o pipefail
+          ./build.sh 2>&1 | tee build.log
+
+      - name: DEBUG - Cek .config hasil build
+        if: always()
+        run: |
+          grep -n "KSU\|KPROBES\|LTO\|CFI" out/.config || echo "out/.config nggak ada"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: |
+            build.log
+            out/.config
+          if-no-files-found: warn
 
       - name: Package ke AnyKernel3
         run: |
