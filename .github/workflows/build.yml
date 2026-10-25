@@ -63,6 +63,9 @@ jobs:
               open(path, "w").write(new)
               print(f"[ok] {path}")
 
+          # Deklarasi extern selalu ditaruh tepat sebelum fungsi yang di-patch,
+          # jadi tipe (size_t, loff_t, bool, __user, dll) sudah dikenal.
+
           # kernel/reboot.c  <-- ini yang dicek Kbuild KernelSU-Next
           patch("kernel/reboot.c",
                 r"(SYSCALL_DEFINE4\(reboot,[^{]*\{\n)",
@@ -74,20 +77,35 @@ jobs:
           # fs/exec.c : di 4.19 do_execveat_common cuma wrapper ke __do_execve_file
           patch("fs/exec.c",
                 r"(static int do_execveat_common\([^{]*\{\n)",
-                lambda m: m.group(1) + "\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n",
+                lambda m: "extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);\n"
+                          + m.group(1)
+                          + "\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n",
                 "ksu_handle_execveat(&fd")
 
           # fs/read_write.c
           patch("fs/read_write.c",
                 r"(ssize_t vfs_read\(struct file \*file, char __user \*buf, size_t count, loff_t \*pos\)\s*\{\s*ssize_t ret;\n)",
-                lambda m: m.group(1) + "\n\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n",
+                lambda m: "extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);\n"
+                          + m.group(1)
+                          + "\n\tksu_handle_vfs_read(&file, &buf, &count, &pos);\n",
                 "ksu_handle_vfs_read(&file")
 
           # drivers/input/input.c
           patch("drivers/input/input.c",
                 r"(void input_event\(struct input_dev \*dev,[^{]*\{\s*unsigned long flags;\n)",
-                lambda m: m.group(1) + "\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n",
+                lambda m: "extern bool ksu_input_hook __read_mostly;\n"
+                          "extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);\n"
+                          + m.group(1)
+                          + "\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n",
                 "ksu_handle_input_handle_event(&type")
+
+          # fs/stat.c : extern dideklarasi di dalam fungsi (block scope)
+          patch("fs/stat.c",
+                r"(\tint error = -EINVAL;\n)",
+                lambda m: m.group(1)
+                          + "\textern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);\n"
+                          + "\tksu_handle_stat(&dfd, &filename, &flags);\n",
+                "ksu_handle_stat(&dfd")
 
           # fs/open.c : faccessat (dipakai su compat), opsional
           patch("fs/open.c",
@@ -101,20 +119,6 @@ jobs:
               print("Patch wajib gagal di:", failed)
               sys.exit(1)
           PYEOF
-
-          # Deklarasi extern
-          sed -i '1i extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);' fs/exec.c
-          sed -i '1i extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);' fs/read_write.c
-          sed -i '1i extern bool ksu_input_hook __read_mostly;' drivers/input/input.c
-          sed -i '1i extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);' drivers/input/input.c
-
-          # fs/stat.c
-          if ! grep -q "ksu_handle_stat" fs/stat.c; then
-            echo "Injecting KSU hook into fs/stat.c..."
-            sed -i '1i extern int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags);' fs/stat.c
-            sed -i '/int error = -EINVAL;/a \
-            ksu_handle_stat(&dfd, &filename, &flags);' fs/stat.c
-          fi
 
       - name: DEBUG - Signature hook asli KernelSU-Next & hasil inject
         if: always()
@@ -249,7 +253,7 @@ jobs:
       - name: DEBUG - Cek .config hasil build
         if: always()
         run: |
-          grep -n "KSU\|KPROBES\|LTO\|CFI" out/.config || echo "out/.config nggak ada"
+          grep -n "KSU\|KPROBES\|LTO\|CFI\|EROFS" out/.config || echo "out/.config nggak ada"
 
       - name: Upload build log
         if: always()
