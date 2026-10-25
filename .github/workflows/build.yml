@@ -120,6 +120,19 @@ jobs:
               sys.exit(1)
           PYEOF
 
+          # Fix: guard avtab di KernelSU-Next legacy kebalik buat kernel 4.19.
+          # Kernel <5.0 pakai flex_array (htable bukan array pointer biasa).
+          SEP=KernelSU-Next/kernel/selinux/sepolicy.c
+          n=$(grep -c "LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)" $SEP || true)
+          echo "guard KERNEL_VERSION(5, 0, 0) ditemukan: $n"
+          if [ "$n" = "3" ]; then
+            sed -i 's/LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)/LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)/' $SEP
+            echo "[ok] sepolicy.c avtab guard dibalik"
+          else
+            echo "[FAIL] jumlah guard bukan 3, source KernelSU-Next berubah, cek manual"
+            exit 1
+          fi
+
       - name: DEBUG - Signature hook asli KernelSU-Next & hasil inject
         if: always()
         run: |
@@ -131,6 +144,9 @@ jobs:
           grep -n "ksu_handle\|ksu_input_hook" \
             kernel/reboot.c fs/exec.c fs/read_write.c fs/stat.c \
             fs/open.c drivers/input/input.c kernel/sys.c || true
+
+          echo "===== sepolicy.c avtab guard (178-222) ====="
+          sed -n '178,222p' KernelSU-Next/kernel/selinux/sepolicy.c || true
 
           echo "===== Kbuild baris 195-215 ====="
           sed -n '195,215p' drivers/kernelsu/Kbuild || true
