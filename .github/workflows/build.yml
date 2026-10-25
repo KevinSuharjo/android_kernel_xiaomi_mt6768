@@ -46,15 +46,20 @@ jobs:
           python3 - << 'PYEOF'
           import re, sys
 
-          def patch(path, pattern, make_repl, marker):
+          failed = []
+
+          def patch(path, pattern, make_repl, marker, required=True):
               s = open(path).read()
               if marker in s:
                   print(f"[skip] {path} sudah ada {marker}")
                   return
               new, n = re.subn(pattern, make_repl, s, count=1, flags=re.S)
               if n != 1:
-                  print(f"[FAIL] anchor nggak ketemu di {path}")
-                  sys.exit(1)
+                  tag = "FAIL" if required else "warn"
+                  print(f"[{tag}] anchor nggak ketemu di {path} ({marker})")
+                  if required:
+                      failed.append(path)
+                  return
               open(path, "w").write(new)
               print(f"[ok] {path}")
 
@@ -66,10 +71,10 @@ jobs:
                           + "\tksu_handle_sys_reboot(magic1, magic2, cmd, &arg);\n",
                 "ksu_handle_sys_reboot")
 
-          # fs/exec.c
+          # fs/exec.c : di 4.19 do_execveat_common cuma wrapper ke __do_execve_file
           patch("fs/exec.c",
-                r"(static int do_execveat_common\(.*?if \(IS_ERR\(filename\)\)\s*return PTR_ERR\(filename\);\n)",
-                lambda m: m.group(1) + "\n\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n",
+                r"(static int do_execveat_common\([^{]*\{\n)",
+                lambda m: m.group(1) + "\tksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);\n",
                 "ksu_handle_execveat(&fd")
 
           # fs/read_write.c
@@ -83,13 +88,25 @@ jobs:
                 r"(void input_event\(struct input_dev \*dev,[^{]*\{\s*unsigned long flags;\n)",
                 lambda m: m.group(1) + "\n\tif (unlikely(ksu_input_hook))\n\t\tksu_handle_input_handle_event(&type, &code, &value);\n",
                 "ksu_handle_input_handle_event(&type")
+
+          # fs/open.c : faccessat (dipakai su compat), opsional
+          patch("fs/open.c",
+                r"(long do_faccessat\(int dfd, const char __user \*filename, int mode\)\s*\{\n)",
+                lambda m: "extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags);\n"
+                          + m.group(1)
+                          + "\tksu_handle_faccessat(&dfd, &filename, &mode, NULL);\n",
+                "ksu_handle_faccessat(&dfd", required=False)
+
+          if failed:
+              print("Patch wajib gagal di:", failed)
+              sys.exit(1)
           PYEOF
 
           # Deklarasi extern
           sed -i '1i extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags);' fs/exec.c
           sed -i '1i extern int ksu_handle_vfs_read(struct file **file_ptr, char __user **buf_ptr, size_t *count_ptr, loff_t **pos);' fs/read_write.c
           sed -i '1i extern bool ksu_input_hook __read_mostly;' drivers/input/input.c
-          sed -i '1i extern void ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);' drivers/input/input.c
+          sed -i '1i extern int ksu_handle_input_handle_event(unsigned int *type, unsigned int *code, int *value);' drivers/input/input.c
 
           # fs/stat.c
           if ! grep -q "ksu_handle_stat" fs/stat.c; then
