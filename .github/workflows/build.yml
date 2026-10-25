@@ -162,7 +162,9 @@ jobs:
             cp arch/arm64/configs/merlin_defconfig arch/arm64/configs/vendor/mt6768_defconfig
           fi
 
-          cat << 'EOF' > arch/arm64/configs/vendor/merlin.config
+          # JANGAN timpa vendor/merlin.config (isi config device: LCM, sensor, touch, ARCH_MTK_PROJECT, dll).
+          # build.sh otomatis merge vendor/ksu.config SETELAH merlin.config.
+          cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
           # Custom Kernel Name (Max total UTS_RELEASE 64 chars)
           CONFIG_LOCALVERSION="-salsachan"
 
@@ -258,7 +260,10 @@ jobs:
           echo "===== build.sh ====="
           cat build.sh || true
           echo "===== Fragment KSU ====="
-          grep -n "KSU\|KPROBES" arch/arm64/configs/vendor/merlin.config || true
+          echo "--- vendor/merlin.config (asli dari repo, harus utuh) ---"
+          cat arch/arm64/configs/vendor/merlin.config || true
+          echo "--- vendor/ksu.config (KSU/EROFS/Droidspaces) ---"
+          grep -n "KSU\|KPROBES\|EROFS" arch/arm64/configs/vendor/ksu.config || true
 
       - name: Eksekusi Kompilasi Kernel
         run: |
@@ -266,10 +271,20 @@ jobs:
           set -o pipefail
           ./build.sh 2>&1 | tee build.log
 
+      - name: DEBUG - Ringkasan error build
+        if: always()
+        run: |
+          [ -f build.log ] || { echo "build.log nggak ada"; exit 0; }
+          echo "===== semua baris error ====="
+          grep -n "error:\|undefined reference\|No rule to make target\|Error [0-9]" build.log | head -60 || true
+          echo "===== konteks error: pertama ====="
+          n=$(grep -n "error:" build.log | head -1 | cut -d: -f1)
+          if [ -n "$n" ]; then sed -n "$((n>8?n-8:1)),$((n+20))p" build.log; else echo "nggak ada baris 'error:'"; fi
+
       - name: DEBUG - Cek .config hasil build
         if: always()
         run: |
-          grep -n "KSU\|KPROBES\|LTO\|CFI\|EROFS" out/.config || echo "out/.config nggak ada"
+          grep -n "KSU\|KPROBES\|LTO\|CFI\|EROFS\|ARCH_MTK_PROJECT" out/.config || echo "out/.config nggak ada"
 
       - name: Upload build log
         if: always()
