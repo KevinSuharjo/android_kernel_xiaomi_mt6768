@@ -41,10 +41,10 @@ jobs:
           rm -f localversion*
           head -n 5 Makefile
 
-      - name: Fix Kernel Panic & Charging Bugs (Power Supply & MTK Charger)
+      - name: Fix Kernel Panic & Charging Bugs (Power Supply & MTK Charger) & Flashlight Makefile
         run: |
           python3 - << 'PYEOF'
-          import sys
+          import os, re, sys
 
           # 1. Fix power_supply_sysfs.c
           sysfs_path = "drivers/power/supply/power_supply_sysfs.c"
@@ -140,6 +140,16 @@ jobs:
           else:
               print("[FAIL] gagal patch mtk_chg_type_det.c!")
               sys.exit(1)
+
+          # 3. Fix empty -D$(...) macro di drivers/misc/mediatek/flashlight/Makefile
+          fl_mk = "drivers/misc/mediatek/flashlight/Makefile"
+          if os.path.exists(fl_mk):
+              mk_src = open(fl_mk).read()
+              # Ganti pola -D$(VAR) menjadi $(if $(VAR),-D$(VAR)) agar tidak menghasilkan -D kosong
+              mk_new = re.sub(r'(?<![\w])\-D(\$\([^)]+\))', r'$(if \1,-D\1)', mk_src)
+              if mk_new != mk_src:
+                  open(fl_mk, "w").write(mk_new)
+                  print("[ok] flashlight/Makefile berhasil diamankan dari flag -D kosong")
           PYEOF
 
       - name: Setup KernelSU-Next (Legacy) & Manual Hooks
@@ -230,8 +240,6 @@ jobs:
               print(f"[info] Kernel avtab.h memakai flex_array: {uses_flex_array}")
 
               if not uses_flex_array:
-                  # Kernel 4.19 sudah backport avtab modern (struct avtab_node **htable)
-                  # Matikan semua blok flex_array di sepolicy.c
                   sep_new = re.sub(
                       r"#if\s+LINUX_VERSION_CODE\s*<\s*KERNEL_VERSION\(\s*5\s*,\s*[01]\s*,\s*0\s*\)",
                       "#if 0",
@@ -242,7 +250,6 @@ jobs:
                       "#if 0",
                       sep_new
                   )
-                  # Jika ada include flex_array.h tanpa guard yang bikin error, amankan
                   if not os.path.exists("include/linux/flex_array.h"):
                       sep_new = sep_new.replace("#include <linux/flex_array.h>", "// #include <linux/flex_array.h>")
                   if sep_new != sep_src:
@@ -255,8 +262,8 @@ jobs:
       - name: DEBUG - Signature hook & diff patch
         if: always()
         run: |
-          echo "===== Diff Power Supply & Charger Fix ====="
-          git diff drivers/power/supply/ || true
+          echo "===== Diff Power Supply, Charger & Flashlight Fix ====="
+          git diff drivers/power/supply/ drivers/misc/mediatek/flashlight/ || true
 
           echo "===== Hasil inject KSU di source kernel ====="
           grep -n "ksu_handle\|ksu_input_hook" \
@@ -367,11 +374,11 @@ jobs:
           # CONFIG_ANDROID_PARANOID_NETWORK is not set
           EOF
 
-      - name: DEBUG - Isi fragment & cek defconfig
+      - name: DEBUG - Isi fragment & cek merlin.config
         if: always()
         run: |
-          echo "===== Daftar defconfig di arch/arm64/configs ====="
-          ls -la arch/arm64/configs/ arch/arm64/configs/vendor/ || true
+          echo "===== Isi arch/arm64/configs/vendor/merlin.config ====="
+          cat arch/arm64/configs/vendor/merlin.config || true
           echo "===== Fragment KSU ====="
           grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|TTL\|HL" arch/arm64/configs/vendor/ksu.config || true
 
@@ -389,17 +396,6 @@ jobs:
             ./build.sh 2>&1 | tee build.log
           else
             echo "[info] build.sh tidak ditemukan, menjalankan kompilasi make langsung..."
-            if [ -f arch/arm64/configs/merlin_defconfig ]; then
-              DEFCONFIG="merlin_defconfig"
-            elif [ -f arch/arm64/configs/mt6768_defconfig ]; then
-              DEFCONFIG="mt6768_defconfig"
-            elif [ -f arch/arm64/configs/vendor/merlin_defconfig ]; then
-              DEFCONFIG="vendor/merlin_defconfig"
-            else
-              DEFCONFIG="vendor/mt6768_defconfig"
-            fi
-            echo "[info] Menggunakan base defconfig: $DEFCONFIG"
-
             COMMON_FLAGS=(
               O=out
               ARCH=arm64
@@ -415,8 +411,16 @@ jobs:
               CROSS_COMPILE_ARM32=arm-linux-gnueabi-
             )
 
-            make "${COMMON_FLAGS[@]}" "$DEFCONFIG"
+            make "${COMMON_FLAGS[@]}" vendor/mt6768_defconfig
+
+            if [ -f arch/arm64/configs/vendor/merlin.config ]; then
+              echo "[info] Menggabungkan arch/arm64/configs/vendor/merlin.config..."
+              cat arch/arm64/configs/vendor/merlin.config >> out/.config
+            fi
+
+            echo "[info] Menggabungkan arch/arm64/configs/vendor/ksu.config..."
             cat arch/arm64/configs/vendor/ksu.config >> out/.config
+
             make "${COMMON_FLAGS[@]}" olddefconfig
             make -j"$(nproc --all)" "${COMMON_FLAGS[@]}" 2>&1 | tee build.log
           fi
