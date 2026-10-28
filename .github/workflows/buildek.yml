@@ -259,11 +259,51 @@ jobs:
                       print("[info] sepolicy.c sudah kompatibel dengan avtab non-flex_array")
           PYEOF
 
+      - name: Patch BPF & Netd Uname Spoof di kernel/sys.c
+        run: |
+          python3 - << 'PYEOF'
+          import sys
+
+          path = "kernel/sys.c"
+          marker = "BPF / Netd Uname Spoof"
+
+          s = open(path).read()
+
+          if marker in s:
+              print("[skip] kernel/sys.c sudah ter-patch")
+              sys.exit(0)
+
+          target = "\tmemcpy(&tmp, utsname(), sizeof(tmp));\n\tup_read(&uts_sem);\n"
+          spoof = (
+              "\tmemcpy(&tmp, utsname(), sizeof(tmp));\n"
+              "\tup_read(&uts_sem);\n"
+              "\t/* BPF / Netd Uname Spoof for Android 14/15/16 HyperOS */\n"
+              "\tif (current_uid().val == 0 &&\n"
+              "\t    (!strncmp(current->comm, \"bpfloader\", 9) ||\n"
+              "\t     !strncmp(current->comm, \"netbpfload\", 10) ||\n"
+              "\t     !strncmp(current->comm, \"netd\", 4))) {\n"
+              "\t\tstrlcpy(tmp.release, \"5.10.0\", sizeof(tmp.release));\n"
+              "\t}\n"
+          )
+
+          if target not in s:
+              print("[FAIL] pola memcpy(&tmp, utsname()...) tidak ketemu di kernel/sys.c")
+              sys.exit(1)
+
+          open(path, "w").write(s.replace(target, spoof, 1))
+          print("[ok] BPF spoof injected ke kernel/sys.c")
+          PYEOF
+
+          grep -n -B 3 -A 8 "BPF / Netd Uname Spoof" kernel/sys.c || true
+
       - name: DEBUG - Signature hook & diff patch
         if: always()
         run: |
           echo "===== Diff Power Supply, Charger & Flashlight Fix ====="
           git diff drivers/power/supply/ drivers/misc/mediatek/flashlight/ || true
+
+          echo "===== Diff BPF Spoof kernel/sys.c ====="
+          git diff kernel/sys.c || true
 
           echo "===== Hasil inject KSU di source kernel ====="
           grep -n "ksu_handle\|ksu_input_hook" \
