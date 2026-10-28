@@ -1,10 +1,10 @@
-name: Deep Check Kernel Bug Lines
+name: Check Array Bounds & Merlin Battery DTS
 
 on:
   workflow_dispatch:
 
 jobs:
-  deep-check:
+  check-bounds:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Target Kernel Tree
@@ -14,20 +14,16 @@ jobs:
           ref: 'lineage-23.2'
           fetch-depth: 1
 
-      - name: 1. Dump power_supply_show_property & uevent
+      - name: 1. Dump power_supply_sysfs.c (Lines 1-145) & include/linux/power_supply.h
         run: |
-          echo "=== drivers/power/supply/power_supply_sysfs.c (Lines 140-380) ==="
-          nl -ba drivers/power/supply/power_supply_sysfs.c | sed -n '140,380p'
+          echo "=== drivers/power/supply/power_supply_sysfs.c (Lines 1-145) ==="
+          nl -ba drivers/power/supply/power_supply_sysfs.c | sed -n '1,145p'
+          echo "=== power_supply_type enum in include/linux/power_supply.h ==="
+          grep -n -C 35 "POWER_SUPPLY_TYPE_USB_HVDCP" include/linux/power_supply.h || true
 
-      - name: 2. Dump mtk_chg_type_det.c (Charger power_supply)
+      - name: 2. Dump merlin.dts & mt6768 battery DTS
         run: |
-          echo "=== drivers/power/supply/mediatek/charger/mtk_chg_type_det.c (Lines 290-620) ==="
-          nl -ba drivers/power/supply/mediatek/charger/mtk_chg_type_det.c | sed -n '290,620p'
-
-      - name: 3. Dump merlin.dts Charging & Battery Config
-        run: |
-          echo "=== arch/arm64/boot/dts/mediatek/merlin.dts (Lines 390-520) ==="
-          nl -ba arch/arm64/boot/dts/mediatek/merlin.dts | sed -n '390,520p'
-          
-          echo "=== Finding Fuel Gauge / GM30 table in DTS ==="
-          grep -rn -C 5 "R_FG_VALUE\|car_tune_value\|Q_MAX" arch/arm64/boot/dts/ || true
+          echo "=== arch/arm64/boot/dts/mediatek/merlin.dts (Lines 350-550) ==="
+          nl -ba arch/arm64/boot/dts/mediatek/merlin.dts | sed -n '350,550p'
+          echo "=== Search MT6768 battery prop dtsi ==="
+          find arch/arm64/boot/dts/ -name "*6768*bat*" -o -name "*merlin*"
