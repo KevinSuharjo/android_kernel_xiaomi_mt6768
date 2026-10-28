@@ -23,13 +23,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             bc bison flex libssl-dev libelf-dev cpio lz4 zstd xz-utils curl \
-            device-tree-compiler python3 zip unzip \
+            device-tree-compiler python3 zip unzip rsync kmod \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
 
       - name: Ambil clang r416183b
         run: |
           git clone --depth=1 -b lineage-20.0 \
             https://github.com/LineageOS/android_prebuilts_clang_kernel_linux-x86_clang-r416183b clang
+          echo "$PWD/clang/bin" >> $GITHUB_PATH
+          echo "LD_LIBRARY_PATH=$PWD/clang/lib64:${LD_LIBRARY_PATH}" >> $GITHUB_ENV
           export LD_LIBRARY_PATH="$PWD/clang/lib64:$LD_LIBRARY_PATH"
           clang/bin/clang --version | head -1
 
@@ -44,10 +46,7 @@ jobs:
           python3 - << 'PYEOF'
           import sys
 
-          # 1. Fix power_supply_sysfs.c:
-          #    - Urutan power_supply_type_text agar sinkron dengan enum power_supply_type di power_supply.h
-          #    - Handle POWER_SUPPLY_PROP_BATTERY_TYPE (intval) supaya tidak dibaca sebagai strval pointer (0xffffffff00000002)
-          #    - Guard null/invalid pointer pada MODEL_NAME .. SERIAL_NUMBER
+          # 1. Fix power_supply_sysfs.c
           sysfs_path = "drivers/power/supply/power_supply_sysfs.c"
           s = open(sysfs_path).read()
 
@@ -106,8 +105,7 @@ jobs:
 
           open(sysfs_path, "w").write(s)
 
-          # 2. Fix mtk_chg_type_det.c:
-          #    Pindahkan case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX keluar dari switch (mtk_chg->chg_type) ke switch (psp)
+          # 2. Fix mtk_chg_type_det.c
           chg_path = "drivers/power/supply/mediatek/charger/mtk_chg_type_det.c"
           c = open(chg_path).read()
 
@@ -150,7 +148,7 @@ jobs:
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
 
           python3 - << 'PYEOF'
-          import re, sys
+          import os, re, sys
 
           failed = []
 
@@ -221,18 +219,38 @@ jobs:
           if failed:
               print("Patch wajib gagal di:", failed)
               sys.exit(1)
-          PYEOF
 
-          SEP=KernelSU-Next/kernel/selinux/sepolicy.c
-          n=$(grep -c "LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)" $SEP || true)
-          echo "guard KERNEL_VERSION(5, 0, 0) ditemukan: $n"
-          if [ "$n" = "3" ]; then
-            sed -i 's/LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)/LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)/' $SEP
-            echo "[ok] sepolicy.c avtab guard dibalik"
-          else
-            echo "[FAIL] jumlah guard bukan 3, source KernelSU-Next berubah, cek manual"
-            exit 1
-          fi
+          # Dinamis cek avtab.h kernel vs sepolicy.c KernelSU-Next (legacy)
+          sep_path = "KernelSU-Next/kernel/selinux/sepolicy.c"
+          avtab_path = "security/selinux/ss/avtab.h"
+          if os.path.exists(sep_path) and os.path.exists(avtab_path):
+              avtab_src = open(avtab_path).read()
+              sep_src = open(sep_path).read()
+              uses_flex_array = "flex_array" in avtab_src
+              print(f"[info] Kernel avtab.h memakai flex_array: {uses_flex_array}")
+
+              if not uses_flex_array:
+                  # Kernel 4.19 sudah backport avtab modern (struct avtab_node **htable)
+                  # Matikan semua blok flex_array di sepolicy.c
+                  sep_new = re.sub(
+                      r"#if\s+LINUX_VERSION_CODE\s*<\s*KERNEL_VERSION\(\s*5\s*,\s*[01]\s*,\s*0\s*\)",
+                      "#if 0",
+                      sep_src
+                  )
+                  sep_new = re.sub(
+                      r"#if\s+LINUX_VERSION_CODE\s*<\s*KERNEL_VERSION\(\s*4\s*,\s*\d+\s*,\s*0\s*\)",
+                      "#if 0",
+                      sep_new
+                  )
+                  # Jika ada include flex_array.h tanpa guard yang bikin error, amankan
+                  if not os.path.exists("include/linux/flex_array.h"):
+                      sep_new = sep_new.replace("#include <linux/flex_array.h>", "// #include <linux/flex_array.h>")
+                  if sep_new != sep_src:
+                      open(sep_path, "w").write(sep_new)
+                      print("[ok] sepolicy.c disesuaikan untuk avtab non-flex_array (4.19 backport)")
+                  else:
+                      print("[info] sepolicy.c sudah kompatibel dengan avtab non-flex_array")
+          PYEOF
 
       - name: DEBUG - Signature hook & diff patch
         if: always()
@@ -248,11 +266,10 @@ jobs:
       - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN + EROFS + TTL
         run: |
           mkdir -p arch/arm64/configs/vendor
-          if [ -f arch/arm64/configs/merlin_defconfig ]; then
+          if [ -f arch/arm64/configs/merlin_defconfig ] && [ ! -f arch/arm64/configs/vendor/mt6768_defconfig ]; then
             cp arch/arm64/configs/merlin_defconfig arch/arm64/configs/vendor/mt6768_defconfig
           fi
 
-          # Pastikan CONFIG_LOCALVERSION_AUTO mati agar tidak ada tambahan git hash / cip
           cat << 'EOF' > arch/arm64/configs/vendor/ksu.config
           # Custom Kernel Name (4.19.325-nekonyaw-salsachan-hyperos+)
           CONFIG_LOCALVERSION="-nekonyaw-salsachan-hyperos+"
@@ -350,19 +367,59 @@ jobs:
           # CONFIG_ANDROID_PARANOID_NETWORK is not set
           EOF
 
-      - name: DEBUG - Isi fragment & build.sh
+      - name: DEBUG - Isi fragment & cek defconfig
         if: always()
         run: |
-          echo "===== build.sh ====="
-          cat build.sh || true
+          echo "===== Daftar defconfig di arch/arm64/configs ====="
+          ls -la arch/arm64/configs/ arch/arm64/configs/vendor/ || true
           echo "===== Fragment KSU ====="
           grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|TTL\|HL" arch/arm64/configs/vendor/ksu.config || true
 
       - name: Eksekusi Kompilasi Kernel
         run: |
-          chmod +x build.sh
           set -o pipefail
-          ./build.sh 2>&1 | tee build.log
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export PATH="$PWD/clang/bin:$PATH"
+          export LD_LIBRARY_PATH="$PWD/clang/lib64:$LD_LIBRARY_PATH"
+
+          if [ -f build.sh ]; then
+            echo "[info] Menjalankan build.sh bawaan repo..."
+            chmod +x build.sh
+            ./build.sh 2>&1 | tee build.log
+          else
+            echo "[info] build.sh tidak ditemukan, menjalankan kompilasi make langsung..."
+            if [ -f arch/arm64/configs/merlin_defconfig ]; then
+              DEFCONFIG="merlin_defconfig"
+            elif [ -f arch/arm64/configs/mt6768_defconfig ]; then
+              DEFCONFIG="mt6768_defconfig"
+            elif [ -f arch/arm64/configs/vendor/merlin_defconfig ]; then
+              DEFCONFIG="vendor/merlin_defconfig"
+            else
+              DEFCONFIG="vendor/mt6768_defconfig"
+            fi
+            echo "[info] Menggunakan base defconfig: $DEFCONFIG"
+
+            COMMON_FLAGS=(
+              O=out
+              ARCH=arm64
+              CC=clang
+              LD=ld.lld
+              AR=llvm-ar
+              NM=llvm-nm
+              OBJCOPY=llvm-objcopy
+              OBJDUMP=llvm-objdump
+              STRIP=llvm-strip
+              CLANG_TRIPLE=aarch64-linux-gnu-
+              CROSS_COMPILE=aarch64-linux-gnu-
+              CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            )
+
+            make "${COMMON_FLAGS[@]}" "$DEFCONFIG"
+            cat arch/arm64/configs/vendor/ksu.config >> out/.config
+            make "${COMMON_FLAGS[@]}" olddefconfig
+            make -j"$(nproc --all)" "${COMMON_FLAGS[@]}" 2>&1 | tee build.log
+          fi
 
       - name: DEBUG - Ringkasan error build
         if: always()
@@ -403,6 +460,9 @@ jobs:
             [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img anykernel/
           elif [ -f out/arch/arm64/boot/Image ]; then
             cp out/arch/arm64/boot/Image anykernel/
+          else
+            echo "[FAIL] Image kernel tidak ditemukan di out/arch/arm64/boot/!"
+            exit 1
           fi
 
           cd anykernel
