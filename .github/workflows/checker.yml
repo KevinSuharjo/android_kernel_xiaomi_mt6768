@@ -1,0 +1,61 @@
+name: Check Kernel Power & Charging Bugs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  check-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Target Kernel Tree
+        uses: actions/checkout@v4
+        with:
+          repository: 'mt6768-dev/android_kernel_xiaomi_mt6768'
+          ref: 'lineage-23.2'
+          depth: 1
+
+      - name: Inspect power_supply_sysfs.c (Panic Point)
+        run: |
+          echo "=================================================="
+          echo "1. Checking power_supply_uevent in power_supply_sysfs.c"
+          echo "=================================================="
+          FILE="drivers/power/supply/power_supply_sysfs.c"
+          if [ -f "$FILE" ]; then
+            # Ambil konteks fungsi power_supply_uevent
+            awk '/power_supply_uevent\(/,/\}/' "$FILE" | head -n 45
+            
+            echo -e "\n--> Check if get_property error check or IS_ERR string check exists:"
+            grep -n -C 3 "get_property" "$FILE" || echo "get_property call not found!"
+          else
+            echo "File $FILE not found!"
+          fi
+
+      - name: Inspect constant_charge_current_max in Charger Drivers
+        run: |
+          echo "=================================================="
+          echo "2. Checking CONSTANT_CHARGE_CURRENT_MAX handlers"
+          echo "=================================================="
+          # Cari driver mana yang mengimplementasikan property ini
+          grep -rn "POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX" drivers/power/supply/ || true
+
+      - name: Inspect smb1351 / MTK Charger return codes
+        run: |
+          echo "=================================================="
+          echo "3. Checking smb1351 and MTK charger get_property"
+          echo "=================================================="
+          CHARGER_FILES=$(find drivers/power/supply/ -type f \( -name "*smb1351*.c" -o -name "*charger*.c" -o -name "*mtk_battery*.c" \))
+          for f in $CHARGER_FILES; do
+            echo "--- File: $f ---"
+            grep -n -C 2 "CONSTANT_CHARGE_CURRENT_MAX" "$f" || true
+          done
+
+      - name: Inspect Battery Profile / DTS Fuel Gauge config
+        run: |
+          echo "=================================================="
+          echo "4. Checking Merlin Battery Profile / Resistor DTS"
+          echo "=================================================="
+          # Cek konfigurasi R_FG_VALUE dan car_tune di DTS merlin
+          find arch/arm64/boot/dts/ -type f -name "*merlin*.dts*" | while read -r dts; do
+            echo "--- Checking $dts ---"
+            grep -in -E "(gauge|battery|qmax|r_fg_value|charging)" "$dts" | head -n 30 || true
+          done
