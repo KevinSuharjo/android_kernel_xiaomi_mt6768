@@ -277,7 +277,7 @@ jobs:
           spoof = (
               "\tmemcpy(&tmp, utsname(), sizeof(tmp));\n"
               "\tup_read(&uts_sem);\n"
-              "\t/* BPF / Netd Uname Spoof for Android 14/15/16 HyperOS */\n"
+              "\t/* BPF / Netd Uname Spoof for Android 14/15/16/17 HyperOS */\n"
               "\tif (current_uid().val == 0 &&\n"
               "\t    (!strncmp(current->comm, \"bpfloader\", 9) ||\n"
               "\t     !strncmp(current->comm, \"netbpfload\", 10) ||\n"
@@ -296,21 +296,96 @@ jobs:
 
           grep -n -B 3 -A 8 "BPF / Netd Uname Spoof" kernel/sys.c || true
 
+      - name: Patch Thermal Sysfs (PowerInsight) & Relax MTK Throttling
+        run: |
+          python3 - << 'PYEOF'
+          import os
+
+          # 1. Expose /sys/class/thermal/thermal_message/board_sensor_temp & ambient_sensor_temp
+          tcore = "drivers/thermal/thermal_core.c"
+          if os.path.exists(tcore):
+              c = open(tcore).read()
+              if "board_sensor_temp" not in c and "static int __init thermal_init(void)" in c:
+                  helper = '''
+          static struct class *xiaomi_thermal_class;
+          static ssize_t board_sensor_temp_show(struct class *class, struct class_attribute *attr, char *buf)
+          {
+          \tstruct thermal_zone_device *tz;
+          \tint temp = 33000;
+          \ttz = thermal_zone_get_zone_by_name("mtktsAP");
+          \tif (!IS_ERR(tz) && tz->ops && tz->ops->get_temp) {
+          \t\tif (tz->ops->get_temp(tz, &temp) == 0)
+          \t\t\treturn sprintf(buf, "%d\\n", temp);
+          \t}
+          \treturn sprintf(buf, "%d\\n", temp);
+          }
+          static ssize_t ambient_sensor_temp_show(struct class *class, struct class_attribute *attr, char *buf)
+          {
+          \treturn board_sensor_temp_show(class, attr, buf);
+          }
+          static CLASS_ATTR_RO(board_sensor_temp);
+          static CLASS_ATTR_RO(ambient_sensor_temp);
+          '''
+                  init_hook = '''
+          \txiaomi_thermal_class = class_create(THIS_MODULE, "thermal_message");
+          \tif (!IS_ERR(xiaomi_thermal_class)) {
+          \t\tclass_create_file(xiaomi_thermal_class, &class_attr_board_sensor_temp);
+          \t\tclass_create_file(xiaomi_thermal_class, &class_attr_ambient_sensor_temp);
+          \t}
+          '''
+                  c = c.replace("static int __init thermal_init(void)", helper + "\nstatic int __init thermal_init(void)", 1)
+                  c = c.replace("return 0;\n\nexit_netlink:", init_hook + "\n\treturn 0;\n\nexit_netlink:", 1)
+                  open(tcore, "w").write(c)
+                  print("[ok] Thermal sysfs nodes (board_sensor_temp & ambient_sensor_temp) injected")
+
+          # 2. Relax aggressive MTK ATM throttling while keeping hardware critical trip point intact
+          atm_path = "drivers/misc/mediatek/thermal/common/coolers/mtk_cooler_atm.c"
+          if os.path.exists(atm_path):
+              atm = open(atm_path).read()
+              atm_new = atm.replace("75000", "90000").replace("80000", "92000")
+              if atm_new != atm:
+                  open(atm_path, "w").write(atm_new)
+                  print("[ok] MTK ATM aggressive thermal threshold relaxed (critical trip preserved)")
+          PYEOF
+
+      - name: Backport MGLRU & Parallel kcompressd (IsHacker Blossom 4.19 Reference)
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git remote add blossom https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom || true
+          git fetch --depth=300 blossom || true
+
+          MGLRU_COMMITS=$(git log blossom/HEAD --grep="lru_gen\|MGLRU" --format="%H" --reverse 2>/dev/null || true)
+          if [ -n "$MGLRU_COMMITS" ]; then
+            echo "[info] Mencoba cherry-pick commit MGLRU dari blossom..."
+            for c in $MGLRU_COMMITS; do
+              if git cherry-pick --no-commit "$c" 2>/dev/null; then
+                echo "[ok] Applied $c"
+              else
+                echo "[warn] Conflict pada $c, skip commit ini agar build tidak rusak"
+                git checkout -- .
+                git clean -fd
+              fi
+            done
+          else
+            echo "[info] Commit MGLRU spesifik tidak ditemukan di shallow history blossom, lanjut dengan source saat ini."
+          fi
+
       - name: DEBUG - Signature hook & diff patch
         if: always()
         run: |
           echo "===== Diff Power Supply, Charger & Flashlight Fix ====="
           git diff drivers/power/supply/ drivers/misc/mediatek/flashlight/ || true
 
-          echo "===== Diff BPF Spoof kernel/sys.c ====="
-          git diff kernel/sys.c || true
+          echo "===== Diff BPF Spoof kernel/sys.c & Thermal ====="
+          git diff kernel/sys.c drivers/thermal/ || true
 
           echo "===== Hasil inject KSU di source kernel ====="
           grep -n "ksu_handle\|ksu_input_hook" \
             kernel/reboot.c fs/exec.c fs/read_write.c fs/stat.c \
             fs/open.c drivers/input/input.c || true
 
-      - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN + EROFS + TTL
+      - name: Siapkan Fragment Config Vendor & Inject Droidspaces + KSUN + EROFS + TTL + HyperOS4 Fixes
         run: |
           mkdir -p arch/arm64/configs/vendor
           if [ -f arch/arm64/configs/merlin_defconfig ] && [ ! -f arch/arm64/configs/vendor/mt6768_defconfig ]; then
@@ -327,6 +402,14 @@ jobs:
           # CONFIG_KSU_DEBUG is not set
           CONFIG_KSU_MANUAL_HOOK=y
           # CONFIG_KPROBES is not set
+
+          # HYPEROS 4 OPTIMIZATIONS: NO ANDROID LMK (KEEP LINUX OOM), BOOTPROF, WIREGUARD, MGLRU
+          # CONFIG_ANDROID_LOW_MEMORY_KILLER is not set
+          # CONFIG_MTK_LMKD is not set
+          CONFIG_MTK_BOOTPROF=y
+          CONFIG_WIREGUARD=y
+          CONFIG_LRU_GEN=y
+          CONFIG_LRU_GEN_ENABLED=y
 
           # EROFS FILESYSTEM SUPPORT
           CONFIG_EROFS_FS=y
@@ -420,7 +503,7 @@ jobs:
           echo "===== Isi arch/arm64/configs/vendor/merlin.config ====="
           cat arch/arm64/configs/vendor/merlin.config || true
           echo "===== Fragment KSU ====="
-          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|TTL\|HL" arch/arm64/configs/vendor/ksu.config || true
+          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|TTL\|HL\|LOW_MEMORY\|WIREGUARD\|BOOTPROF\|LRU_GEN" arch/arm64/configs/vendor/ksu.config || true
 
       - name: Eksekusi Kompilasi Kernel
         run: |
@@ -478,7 +561,7 @@ jobs:
       - name: DEBUG - Cek .config hasil build
         if: always()
         run: |
-          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|ARCH_MTK_PROJECT" out/.config || echo "out/.config nggak ada"
+          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|ARCH_MTK_PROJECT\|LOW_MEMORY\|WIREGUARD\|BOOTPROF\|LRU_GEN" out/.config || echo "out/.config nggak ada"
 
       - name: Upload build log
         if: always()
@@ -491,7 +574,7 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
 
-      - name: Package ke AnyKernel3
+      - name: Package ke AnyKernel3 & Inject Overclock Scripts (English, Default OFF)
         run: |
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git anykernel
           sed -i 's/device.name1=.*/device.name1=merlin/g' anykernel/anykernel.sh
@@ -508,6 +591,99 @@ jobs:
             echo "[FAIL] Image kernel tidak ditemukan di out/arch/arm64/boot/!"
             exit 1
           fi
+
+          # Inject overclock_enable & overclock_disable (Default OFF on boot)
+          mkdir -p anykernel/ramdisk/overlay.d/sbin
+
+          cat << 'EOF' > anykernel/ramdisk/overlay.d/sbin/overclock_enable
+          #!/system/bin/sh
+          if [ "$(id -u)" -ne 0 ]; then
+              echo "[-] Error: Please run this command as root (su)."
+              exit 1
+          fi
+
+          STATE_DIR="/data/local/tmp/oc_state"
+          mkdir -p "$STATE_DIR"
+
+          if [ ! -f "$STATE_DIR/saved" ]; then
+              cat /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq > "$STATE_DIR/cpu_little_stock" 2>/dev/null
+              cat /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq > "$STATE_DIR/cpu_big_stock" 2>/dev/null
+              echo "1" > "$STATE_DIR/saved"
+          fi
+
+          LITTLE_OC=$(awk '{print $NF}' /sys/devices/system/cpu/cpufreq/policy0/scaling_available_frequencies 2>/dev/null)
+          BIG_OC=$(awk '{print $NF}' /sys/devices/system/cpu/cpufreq/policy6/scaling_available_frequencies 2>/dev/null)
+
+          [ -n "$LITTLE_OC" ] && echo "$LITTLE_OC" > /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq 2>/dev/null
+          [ -n "$BIG_OC" ] && echo "$BIG_OC" > /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq 2>/dev/null
+
+          if [ -f /proc/gpufreq/gpufreq_opp_freq ]; then
+              GPU_TOP=$(grep -oE 'freq = [0-9]+' /proc/gpufreq/gpufreq_opp_dump 2>/dev/null | head -n1 | awk '{print $3}')
+              [ -n "$GPU_TOP" ] && echo "$GPU_TOP" > /proc/gpufreq/gpufreq_opp_freq 2>/dev/null
+          fi
+
+          if command -v iw >/dev/null 2>&1; then
+              iw dev wlan0 set txpower fixed 2000 2>/dev/null
+          fi
+
+          echo "========================================================"
+          echo "[+] OVERCLOCK MODE ENABLED"
+          echo "    - CPU Little Max : ${LITTLE_OC:-1800000} kHz"
+          echo "    - CPU Big Max    : ${BIG_OC:-2000000} kHz"
+          echo "    - GPU Max Freq   : Unlocked (Top OPP)"
+          echo "    - Wi-Fi TX Power : Boosted (20 dBm)"
+          echo "--------------------------------------------------------"
+          echo "[!] HARDWARE SAFETY WARNING:"
+          echo "    Using an external phone cooler is strongly advised"
+          echo "    while Overclock Mode is active to prevent excessive"
+          echo "    heat buildup and hardware degradation."
+          echo "    (Note: Overclock resets to stock automatically on reboot)"
+          echo "========================================================"
+          EOF
+
+          cat << 'EOF' > anykernel/ramdisk/overlay.d/sbin/overclock_disable
+          #!/system/bin/sh
+          if [ "$(id -u)" -ne 0 ]; then
+              echo "[-] Error: Please run this command as root (su)."
+              exit 1
+          fi
+
+          STATE_DIR="/data/local/tmp/oc_state"
+
+          if [ -f "$STATE_DIR/saved" ]; then
+              cat "$STATE_DIR/cpu_little_stock" > /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq 2>/dev/null
+              cat "$STATE_DIR/cpu_big_stock" > /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq 2>/dev/null
+          else
+              echo 1800000 > /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq 2>/dev/null
+              echo 2000000 > /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq 2>/dev/null
+          fi
+
+          if [ -f /proc/gpufreq/gpufreq_opp_freq ]; then
+              echo 0 > /proc/gpufreq/gpufreq_opp_freq 2>/dev/null
+          fi
+
+          if command -v iw >/dev/null 2>&1; then
+              iw dev wlan0 set txpower auto 2>/dev/null
+          fi
+
+          echo "========================================================"
+          echo "[-] OVERCLOCK MODE DISABLED"
+          echo "    All CPU, GPU, and TX power parameters have been"
+          echo "    restored to safe stock frequencies."
+          echo "========================================================"
+          EOF
+
+          cat << 'EOF' > anykernel/ramdisk/overlay.d/init.oc_safeguard.rc
+          on property:sys.boot_completed=1
+              write /sys/devices/system/cpu/cpufreq/policy0/scaling_max_freq 1800000
+              write /sys/devices/system/cpu/cpufreq/policy6/scaling_max_freq 2000000
+              write /proc/gpufreq/gpufreq_opp_freq 0
+          EOF
+
+          chmod 0755 anykernel/ramdisk/overlay.d/sbin/overclock_enable
+          chmod 0755 anykernel/ramdisk/overlay.d/sbin/overclock_disable
+          ln -sf overclock_enable anykernel/ramdisk/overlay.d/sbin/overlock_enable
+          ln -sf overclock_disable anykernel/ramdisk/overlay.d/sbin/overlock_disable
 
           cd anykernel
           zip -r9 ../nekonyaw-salsachan-hyperos-merlin.zip * -x .git README.md *placeholder
