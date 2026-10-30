@@ -7,19 +7,15 @@ jobs:
   ssh-build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Source Code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Tmate Mandiri & Jalankan SSH
+      - name: Setup Tools
         run: |
-          curl -sL https://github.com/tmate-io/tmate/releases/download/2.4.0/tmate-2.4.0-static-linux-amd64.tar.xz | tar -xJ -C /tmp
-          sudo mv /tmp/tmate-2.4.0-static-linux-amd64/tmate /usr/local/bin/
-          tmate -S /tmp/tmate.sock new-session -d
-          tmate -S /tmp/tmate.sock wait tmate-ready
-          echo "=========================================="
-          echo "KONEKSI SSH ANDA:"
-          tmate -S /tmp/tmate.sock display -p '#{tmate_ssh}'
-          echo "WEB BROWSER TERMINAL:"
-          tmate -S /tmp/tmate.sock display -p '#{tmate_web}'
-          echo "=========================================="
-          while [ ! -f /tmp/stop ]; do sleep 2; done
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev libncurses-dev git zip curl wget
+
+      - name: Start SSH Terminal
+        uses: owenthereal/action-upterm@v1
+        with:
+          wait-timeout-minutes: 60
