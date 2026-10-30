@@ -1,0 +1,22 @@
+name: Kernel SSH Debugger
+
+on:
+  workflow_dispatch: # Supaya bisa di-klik manual kapan aja
+
+jobs:
+  ssh-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Paket Compiler & Build Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev \
+            libelf-dev libncurses5-dev git zip curl wget python3 libncurses-dev
+
+      - name: Buka Terowongan SSH
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: false
