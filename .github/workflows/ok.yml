@@ -307,27 +307,6 @@ jobs:
                   open(atm_path, "w").write(atm_new)
                   print("[ok] MTK ATM aggressive thermal threshold relaxed (critical trip preserved)")
           PYEOF
-      - name: Backport MGLRU & Parallel kcompressd (IsHacker Blossom 4.19 Reference)
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git remote add blossom https://github.com/IsHacker-kernel/android_kernel_xiaomi_blossom || true
-          git fetch --depth=300 blossom || true
-          MGLRU_COMMITS=$(git log blossom/HEAD --grep="lru_gen\|MGLRU" --format="%H" --reverse 2>/dev/null || true)
-          if [ -n "$MGLRU_COMMITS" ]; then
-            echo "[info] Mencoba cherry-pick commit MGLRU dari blossom..."
-            for c in $MGLRU_COMMITS; do
-              if git cherry-pick --no-commit "$c" 2>/dev/null; then
-                echo "[ok] Applied $c"
-              else
-                echo "[warn] Conflict pada $c, skip commit ini agar build tidak rusak"
-                git checkout -- .
-                git clean -fd
-              fi
-            done
-          else
-            echo "[info] Commit MGLRU spesifik tidak ditemukan di shallow history blossom, lanjut dengan source saat ini."
-          fi
       - name: DEBUG - Signature hook & diff patch
         if: always()
         run: |
@@ -357,13 +336,11 @@ jobs:
           CONFIG_KSU_MANUAL_HOOK=y
           # CONFIG_KPROBES is not set
           
-          # HYPEROS 4 OPTIMIZATIONS: NO ANDROID LMK (KEEP LINUX OOM), BOOTPROF, WIREGUARD, MGLRU
+          # HYPEROS 4 OPTIMIZATIONS: NO ANDROID LMK (KEEP LINUX OOM), BOOTPROF, WIREGUARD
           # CONFIG_ANDROID_LOW_MEMORY_KILLER is not set
           # CONFIG_MTK_LMKD is not set
           CONFIG_MTK_BOOTPROF=y
           CONFIG_WIREGUARD=y
-          CONFIG_LRU_GEN=y
-          CONFIG_LRU_GEN_ENABLED=y
           # EROFS FILESYSTEM SUPPORT
           CONFIG_EROFS_FS=y
           CONFIG_EROFS_FS_XATTR=y
@@ -445,7 +422,7 @@ jobs:
           echo "===== Isi arch/arm64/configs/vendor/merlin.config ====="
           cat arch/arm64/configs/vendor/merlin.config || true
           echo "===== Fragment KSU ====="
-          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|TTL\|HL\|LOW_MEMORY\|WIREGUARD\|BOOTPROF\|LRU_GEN" arch/arm64/configs/vendor/ksu.config || true
+          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|TTL\|HL\|LOW_MEMORY\|WIREGUARD\|BOOTPROF" arch/arm64/configs/vendor/ksu.config || true
       - name: Eksekusi Kompilasi Kernel
         run: |
           set -o pipefail
@@ -495,7 +472,7 @@ jobs:
       - name: DEBUG - Cek .config hasil build
         if: always()
         run: |
-          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|ARCH_MTK_PROJECT\|LOW_MEMORY\|WIREGUARD\|BOOTPROF\|LRU_GEN" out/.config || echo "out/.config nggak ada"
+          grep -n "LOCALVERSION\|KSU\|KPROBES\|EROFS\|ARCH_MTK_PROJECT\|LOW_MEMORY\|WIREGUARD\|BOOTPROF" out/.config || echo "out/.config nggak ada"
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
