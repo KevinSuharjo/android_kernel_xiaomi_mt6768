@@ -212,7 +212,8 @@ jobs:
           # CONFIG_COMMON_CLK_MT8183 is not set
 
           # ================= DRM platform lain (gak kepake di merlin) =================
-          # DRM_EXYNOS pakai API fb->modifier (4.19+) padahal struct 4.14 masih modifier[4]
+          # DRM_EXYNOS di tree ini pakai API fb->modifier (4.19+) padahal struct-nya
+          # masih modifier[4] -> error di clang 16. Matiin aja, gak ada hubungannya sama merlin.
           # CONFIG_DRM_EXYNOS is not set
           # CONFIG_DRM_NOUVEAU is not set
           # CONFIG_DRM_ROCKCHIP is not set
@@ -221,6 +222,18 @@ jobs:
           # CONFIG_DRM_VC4 is not set
           # CONFIG_DRM_HISI_KIRIN is not set
           # CONFIG_DRM_MESON is not set
+
+          # ================= MTK pinctrl =================
+          # MT8183 default y (ARM64 && ARCH_MEDIATEK) padahal file pinctrl-nya gak ada
+          # CONFIG_PINCTRL_MT8183 is not set
+          # CONFIG_PINCTRL_MT8167 is not set
+          # CONFIG_PINCTRL_MT8168 is not set
+          # CONFIG_PINCTRL_MT6739 is not set
+          # CONFIG_PINCTRL_MT6771 is not set
+          # CONFIG_PINCTRL_MT6781 is not set
+          # CONFIG_PINCTRL_MT6873 is not set
+          # CONFIG_PINCTRL_MT6877 is not set
+          # CONFIG_PINCTRL_MT6885 is not set
 
           # ================= VINTF: wajib MATI =================
           # CONFIG_DEVMEM is not set
