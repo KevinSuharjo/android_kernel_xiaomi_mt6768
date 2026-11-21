@@ -235,6 +235,11 @@ jobs:
           # CONFIG_PINCTRL_MT6877 is not set
           # CONFIG_PINCTRL_MT6885 is not set
 
+          # ================= MTK scpsys =================
+          # mtk-scpsys.c include dt-bindings/power/mt8168-power.h yang udah gak ada.
+          # Driver ini cuma buat MT2701/6797/7622/8168/8173, gak dipakai MT6768.
+          # CONFIG_MTK_SCPSYS is not set
+
           # ================= VINTF: wajib MATI =================
           # CONFIG_DEVMEM is not set
           # CONFIG_DEVKMEM is not set
