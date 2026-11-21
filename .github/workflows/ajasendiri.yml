@@ -211,6 +211,17 @@ jobs:
           # CONFIG_COMMON_CLK_MT8168 is not set
           # CONFIG_COMMON_CLK_MT8183 is not set
 
+          # ================= DRM platform lain (gak kepake di merlin) =================
+          # DRM_EXYNOS pakai API fb->modifier (4.19+) padahal struct 4.14 masih modifier[4]
+          # CONFIG_DRM_EXYNOS is not set
+          # CONFIG_DRM_NOUVEAU is not set
+          # CONFIG_DRM_ROCKCHIP is not set
+          # CONFIG_DRM_RCAR_DU is not set
+          # CONFIG_DRM_TEGRA is not set
+          # CONFIG_DRM_VC4 is not set
+          # CONFIG_DRM_HISI_KIRIN is not set
+          # CONFIG_DRM_MESON is not set
+
           # ================= VINTF: wajib MATI =================
           # CONFIG_DEVMEM is not set
           # CONFIG_DEVKMEM is not set
